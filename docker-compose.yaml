@@ -1,0 +1,90 @@
+# docker-compose file, that brings up a Postgres instance,
+# a Management Console and a RoboServer
+# RoboServer count can be scaled
+version: '3.8'
+networks:
+  net:
+services:
+  postgres-service:
+    build:
+      context: .
+      dockerfile: docker/postgres/Dockerfile
+    image: postgres-rpa:11
+    environment:
+      - POSTGRES_USER=scheduler
+      - POSTGRES_PASSWORD=dbpassword
+      - POSTGRES_DB=scheduler
+      - POSTGRES_HOST_AUTH_METHOD=md5
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
+    networks:
+      - net
+    restart: always
+  managementconsole-service:
+    build:
+      context: .
+      dockerfile: docker/managementconsole/Dockerfile
+    image: managementconsole:11.1.0.4
+    depends_on:
+      - postgres-service
+    ports:
+      - 8787:8080
+    environment:
+      - CONTEXT_RESOURCE_VALIDATIONQUERY=SELECT 1
+      - CONTEXT_RESOURCE_USERNAME=scheduler
+      - CONTEXT_RESOURCE_PASSWORD=dbpassword
+      - CONTEXT_RESOURCE_DRIVERCLASSNAME=org.postgresql.Driver
+      - CONTEXT_RESOURCE_URL=jdbc:postgresql://postgres-service:5432/scheduler
+      - CONTEXT_CHECK_DATABASE_TIMEOUT=120
+      # enter your license here, or type it through the GUI in first login
+      - CONFIG_LICENSE_NAME=
+      - CONFIG_LICENSE_EMAIL=
+      - CONFIG_LICENSE_COMPANY=
+      - CONFIG_LICENSE_PRODUCTIONKEY=
+      - CONFIG_LICENSE_NONPRODUCTIONKEY=
+      # change to fit interfaces on your containers
+      - CONFIG_CLUSTER_INTERFACE=172.*.*.*
+      - CONFIG_CLUSTER_MULTICAST_GROUP=224.2.2.3
+      - CONFIG_CLUSTER_MULTICAST_PORT=54327
+    networks:
+      - net
+  roboserver-service:
+    build:
+      context: .
+      dockerfile: docker/roboserver/Dockerfile
+    image: roboserver:11.1.0.4
+    depends_on:
+      - managementconsole-service
+      - postgres-service
+    ports:
+      - 50000:50000
+      - 50001:50001
+    networks:
+      - net
+    environment:
+      - ROBOSERVER_ENABLE_MC_REGISTRATION=true
+      - ROBOSERVER_MC_URL=http://managementconsole-service:8080/
+      - ROBOSERVER_MC_CLUSTER=Production
+      - ROBOSERVER_MC_USERNAME=admin
+      - ROBOSERVER_MC_PASSWORD=admin
+      # Socket setting
+      - ROBOSERVER_ENABLE_SOCKET_SERVICE=true
+      - WRAPPER_MAX_MEMORY=2048
+      - ROBOSERVER_SEC_ALLOW_FILE_SYSTEM_ACCESS=true
+  synchronizer-service:
+    build:
+      context: .
+      dockerfile: docker/synchronizer/Dockerfile
+    image: synchronizer:11.1.0.4
+    depends_on:
+      - postgres-service
+      - managementconsole-service
+      - roboserver-service    
+    networks:
+      - net
+    environment:
+      - MC_URL=http://managementconsole-service:8080/
+      - MC_USERNAME=admin
+      - MC_PASSWORD=admin
